@@ -118,7 +118,11 @@ enum lsquic_version
  */
 #define LSQUIC_FORCED_TCID0_VERSIONS ((1 << LSQVER_046)|(1 << LSQVER_050))
 
+/**
+ * ID34 is not stable
+ */
 #define LSQUIC_EXPERIMENTAL_VERSIONS ( \
+                            (1 << LSQVER_ID34) | \
                             (1 << LSQVER_I001) | \
                             (1 << LSQVER_VERNEG) | LSQUIC_EXPERIMENTAL_Q098)
 
