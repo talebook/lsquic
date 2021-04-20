@@ -244,6 +244,8 @@ enum send_flags
 } while (0)
 
 #define ABORT_WITH_FLAG(conn, log_level, flag, ...) do {                    \
+    fprintf(stderr, __VA_ARGS__);                                           \
+    fprintf(stderr, "\n");                                                  \
     SET_ERRMSG(conn, __VA_ARGS__);                                          \
     if (!((conn)->ifc_flags & IFC_ABORT_COMPLAINED))                        \
         LSQ_LOG(log_level, "Abort connection: " __VA_ARGS__);               \
