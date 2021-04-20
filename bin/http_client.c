@@ -1006,6 +1006,7 @@ usage (const char *filename, struct prog *prog)
     printf(
 "General Options:\n"
 "   -h          Print this help screen and exit\n"
+"   -t          Print stats to stdout.\n"
 "\n"
 "Connection Options:\n"
 "   -n CONNS    Number of concurrent connections.  Defaults to 1.\n"
@@ -1104,7 +1105,7 @@ usage (const char *filename, struct prog *prog)
 
 "\n"
 "QUIC Options:\n"
-"   -0 FILE     Session resumption file for 0-RT (reading or writing)\n"
+"   -0 FILE     Session resumption file for 0-RTT (reading or writing)\n"
 "   -Q ALPN     Use hq ALPN.  Specify, for example, \"h3-29\".\n"
 "   -e TOKEN    Hexadecimal string representing resume token.\n"
 "   -9 SPEC     Priority specification.  May be specified several times.\n"
@@ -1126,7 +1127,6 @@ usage (const char *filename, struct prog *prog)
 #endif
 "\n"
 "Other Options:\n"
-"   -t          Print stats to stdout.\n"
 "   -L LEVEL    Log level for all modules. Possible values are `debug',\n"
 "                 `info', `notice', `warn', `error', `alert', `emerg',\n"
 "                 and `crit'.\n"
