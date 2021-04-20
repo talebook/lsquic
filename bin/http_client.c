@@ -183,6 +183,8 @@ struct http_client_ctx {
     TAILQ_HEAD(, path_elem)      hcc_path_elems;
     struct path_elem            *hcc_cur_pe;
 
+    useconds_t                   usec_sleep_before_new_stream;
+
     unsigned                     hcc_total_n_reqs;
     unsigned                     hcc_reqs_per_conn;
     unsigned                     hcc_concurrency;
@@ -905,6 +907,8 @@ http_client_on_close (lsquic_stream_t *stream, lsquic_stream_ctx_t *st_h)
             conn_h->ch_n_reqs - conn_h->ch_n_cc_streams,
             MIN((conn_h->ch_n_reqs - conn_h->ch_n_cc_streams),
                 (client_ctx->hcc_cc_reqs_per_conn - conn_h->ch_n_cc_streams)));
+        LSQ_DEBUG("sleep some %u useconds", client_ctx->usec_sleep_before_new_stream);
+        usleep(client_ctx->usec_sleep_before_new_stream);
         create_streams(client_ctx, conn_h);
     }
     if (st_h->reader.lsqr_ctx)
@@ -986,52 +990,210 @@ static struct lsquic_stream_if hq_client_if = {
 
 
 static void
-usage (const char *prog)
+usage (const char *filename, struct prog *prog)
 {
-    const char *const slash = strrchr(prog, '/');
+    const char *const slash = strrchr(filename, '/');
     if (slash)
-        prog = slash + 1;
+        filename = slash + 1;
+
     printf(
-"Usage: %s [opts]\n"
+"Build Time: " __DATE__ __TIME__ "\n"
 "\n"
-"Options:\n"
+"Usage: %s [opts]\n"
+"\n", filename);
+
+
+    printf(
+"General Options:\n"
+"   -h          Print this help screen and exit\n"
+"\n"
+"Connection Options:\n"
+"   -n CONNS    Number of concurrent connections.  Defaults to 1.\n"
+"   -r NREQS    Total number of requests to send.  Defaults to 1.\n"
+"   -R MAXREQS  Maximum number of requests per single connection stream.\n"
+"                 Some connections will have fewer requests than this.\n"
+"                 Defaults to 1.\n"
+"   -w CONCUR   Number of concurrent requests per single connection.\n"
+"                 Defaults to 1.\n"
+"   -A MSECONDS Sleep before create next streams. Defaults is 0.\n"
+"                 Useful for a long-time testing.\n"
+"\n"
+"Server Options:\n"
+#if HAVE_REGEX
+"   -s SVCPORT  Server address on the form of host:port, host or port.\n"
+"                 If host is not IPv4 or IPv6 address, it is resolved.\n"
+"                 If host is not set, SNI host is used (see -H flag).\n"
+"                 If port is not set, the default is 443.\n"
+#else
+"   -s SVCPORT  Service port.  Takes on the form of host:port or host.\n"
+"                 If host is not an IPv4 or IPv6 address, it is resolved.\n"
+"                 If port is not set, the default is 443.\n"
+#endif
+"                 Examples:\n"
+"                     127.0.0.1:12345\n"
+"                     ::1:443\n"
+"                     example.com\n"
+"                     example.com:8443\n"
+#if HAVE_REGEX
+"                     8443\n"
+#endif
+"   -b N_BYTES  Send RESET_STREAM frame after the client has read n bytes.\n"
+"   -3 MAX      Close stream after reading at most MAX bytes.  The actual\n"
+"                 number of bytes read is randominzed.\n"
+"   -I          Abort on incomplete reponse from server\n"
+"   -4          Prefer IPv4 when resolving hostname\n"
+"   -6          Prefer IPv6 when resolving hostname\n"
+"   -m MAX      Maximum number of outgoing packet buffers that can be\n"
+"                 assigned at any one time.  By default, there is no max.\n"
+"   -z BYTES    Maximum size of outgoing UDP packets (client only).\n"
+"                 Overrides -o base_plpmtu.\n"
+"   -k          Connect UDP socket.  Only meant to be used with clients\n"
+"                 to pick up ICMP errors.\n"
+#if LSQUIC_DONTFRAG_SUPPORTED
+"   -D          Do not set `do not fragment' flag on outgoing UDP packets\n"
+#endif
+"\n"
+"HTTP Options:\n"
+"   -M METHOD   Method.  Defaults to GET.\n"
 "   -p PATH     Path to request.  May be specified more than once.  If no\n"
 "                 path is specified, the connection is closed as soon as\n"
 "                 handshake succeeds.\n"
-"   -n CONNS    Number of concurrent connections.  Defaults to 1.\n"
-"   -r NREQS    Total number of requests to send.  Defaults to 1.\n"
-"   -R MAXREQS  Maximum number of requests per single connection.  Some\n"
-"                 connections will have fewer requests than this.\n"
-"   -w CONCUR   Number of concurrent requests per single connection.\n"
-"                 Defaults to 1.\n"
-"   -M METHOD   Method.  Defaults to GET.\n"
 "   -P PAYLOAD  Name of the file that contains payload to be used in the\n"
 "                 request.  This adds two more headers to the request:\n"
 "                 content-type: application/octet-stream and\n"
 "                 content-length\n"
 "   -K          Discard server response\n"
-"   -I          Abort on incomplete reponse from server\n"
-"   -4          Prefer IPv4 when resolving hostname\n"
-"   -6          Prefer IPv6 when resolving hostname\n"
+);
+    if (prog->prog_engine_flags & LSENG_SERVER) {
+        printf(
+"   -c CERTSPEC Service specification.  The specification is three values\n"
+"                 separated by commas.  The values are:\n"
+"                   * Domain name\n"
+"                   * File containing cert in PEM format\n"
+"                   * File containing private key in DER or PEM format\n"
+"                 Example:\n"
+"                   -c www.example.com,/tmp/cert.pem,/tmp/key.pkcs8\n"
+);
+    } else if (prog->prog_engine_flags & LSENG_HTTP) {
+        printf(
+"   -H host     Value of `host' HTTP header.  This is also used as SNI\n"
+"                 in Client Hello.  This option is used to override the\n"
+"                 `host' part of the address specified using -s flag.\n"
+);
+    } else {
+        printf(
+"   -H host     Value of SNI in CHLO.\n"
+);
+    };
+    printf(
 #ifndef WIN32
 "   -C DIR      Certificate store.  If specified, server certificate will\n"
 "                 be verified.\n"
 #endif
 "   -a          Display server certificate chain after successful handshake.\n"
-"   -b N_BYTES  Send RESET_STREAM frame after the client has read n bytes.\n"
-"   -t          Print stats to stdout.\n"
+"\n"
+"\n"
+"File Options:\n"
 "   -T FILE     Print stats to FILE.  If FILE is -, print stats to stdout.\n"
 "   -q FILE     QIF mode: issue requests from the QIF file and validate\n"
 "                 server responses.\n"
+"   -7 DIR      Save fetched resources into this directory.\n"
+#ifndef WIN32
+"   -G dir      SSL keys will be logged to files in this directory.\n"
+#endif
+
+"\n"
+"QUIC Options:\n"
+"   -0 FILE     Session resumption file for 0-RT (reading or writing)\n"
+"   -Q ALPN     Use hq ALPN.  Specify, for example, \"h3-29\".\n"
 "   -e TOKEN    Hexadecimal string representing resume token.\n"
-"   -3 MAX      Close stream after reading at most MAX bytes.  The actual\n"
-"                 number of bytes read is randominzed.\n"
 "   -9 SPEC     Priority specification.  May be specified several times.\n"
 "                 SPEC takes the form stream_id:nread:UI, where U is\n"
 "                 urgency and I is incremental.  Matched \\d+:\\d+:[0-7][01]\n"
-"   -7 DIR      Save fetched resources into this directory.\n"
-"   -Q ALPN     Use hq ALPN.  Specify, for example, \"h3-29\".\n"
-            , prog);
+"   -S opt=val  Socket options.  examplese options:\n"
+"                 -S sndbuf=12345    # Sets SO_SNDBUF\n"
+"                 -S rcvbuf=12345    # Sets SO_RCVBUF\n"
+"   -o opt=val  Extra options. Common options is 'version':\n"
+"                 -o version=Q043    # Set QUIC version to Q043\n"
+"                 (See Support Versions)\n"
+"\n"
+"   -W          Use stock PMI (malloc & free)\n"
+#if HAVE_SENDMMSG
+"   -g          Use sendmmsg() to send packets.\n"
+#endif
+#if HAVE_RECVMMSG
+"   -j          Use recvmmsg() to receive packets.\n"
+#endif
+"\n"
+"Other Options:\n"
+"   -t          Print stats to stdout.\n"
+"   -L LEVEL    Log level for all modules. Possible values are `debug',\n"
+"                 `info', `notice', `warn', `error', `alert', `emerg',\n"
+"                 and `crit'.\n"
+"   -l LEVELS   Log levels for modules, e.g.\n"
+"                 -l event=info,engine=debug\n"
+"               Can be specified more than once.\n"
+"   -y style    Timestamp style used in log messages.  The following styles\n"
+"                 are supported:\n"
+"                   0   No timestamp\n"
+"                   1   Millisecond time (this is the default).\n"
+"                         Example: 11:04:05.196\n"
+"                   2   Full date and millisecond time.\n"
+"                         Example: 2017-03-21 13:43:46.671\n"
+"                   3   Chrome-like timestamp: date/time.microseconds.\n"
+"                         Example: 1223/104613.946956\n"
+"                   4   Microsecond time.\n"
+"                         Example: 11:04:05.196308\n"
+"                   5   Full date and microsecond time.\n"
+"                         Example: 2017-03-21 13:43:46.671345\n"
+);
+
+    printf(
+"   -i USECS    Clock granularity in microseconds.  Defaults to %u.\n"
+"\n"
+        , LSQUIC_DF_CLOCK_GRANULARITY);
+
+}
+
+static void
+examples(const char *prog)
+{
+    const char *const slash = strrchr(prog, '/');
+    if (slash)
+        prog = slash + 1;
+
+    printf("\nSupport Versions (ALPN names):\n");
+    for ( int ver = 0; ver <= LSQVER_050; ver ++ ) {
+        printf("    %s\n", lsquic_ver2str[ver]);
+    }
+    // alpn names
+    //for (am = s_h3_alpns; am < s_h3_alpns + sizeof(s_h3_alpns) / sizeof(s_h3_alpns[0]); ++am)
+    //        if (am->version == enc_sess->esi_ver_neg->vn_ver)
+    const char* const* alpns = lsquic_get_h3_alpns(LSQUIC_SUPPORTED_VERSIONS);
+    for( unsigned idx = 0; idx < sizeof(alpns); idx ++ ) {
+        if ( alpns[idx] == NULL ) {
+            break;
+        }
+        printf("    %s\n", alpns[idx]);
+    }
+
+
+    printf(
+"\n"
+"Examples:\n"
+"  - A very simple request, run:\n"
+"    %s -H www.gstatic.com -p /index.html\n"
+"\n"
+"  - By default, this tool just negotion IETF QUIC versions. Specific a different version:\n"
+"    %s -H www.gstatic.com -p /index.html -o version=Q043\n"
+"\n"
+"  - Multi request ( will handshake multi times ):\n"
+"    %s -H www.gstatic.com -p /index.html -r 10\n"
+"\n"
+"  - Multi request over one connection: ( handshake once, set '-R MAXREQS' equals to '-r NREQS' )\n"
+"    %s -H www.gstatic.com -p /index.html -r 10 -R 10\n"
+"\n"
+    , prog, prog, prog, prog);
 }
 
 
@@ -1589,7 +1751,7 @@ const struct lsquic_stream_if qif_client_if = {
 int
 main (int argc, char **argv)
 {
-    int opt, s, was_empty;
+    int opt, s, was_empty, msec;
     lsquic_time_t start_time;
     FILE *stats_fh = NULL;
     long double elapsed;
@@ -1616,7 +1778,7 @@ main (int argc, char **argv)
     prog_init(&prog, LSENG_HTTP, &sports, &http_client_if, &client_ctx);
 
     while (-1 != (opt = getopt(argc, argv, PROG_OPTS
-                                    "46Br:R:IKu:EP:M:n:w:H:p:0:q:e:hatT:b:d:"
+                                    "46A:Br:R:IKu:EP:M:n:w:H:p:0:q:e:hatT:b:d:"
                             "3:"    /* 3 is 133+ for "e" ("e" for "early") */
                             "9:"    /* 9 sort of looks like P... */
                             "7:"    /* Download directory */
@@ -1633,6 +1795,11 @@ main (int argc, char **argv)
         case '4':
         case '6':
             prog.prog_ipver = opt - '0';
+            break;
+        case 'A':
+            msec = atoi(optarg);
+            if ( msec < 0 ) { msec = 0; }
+            client_ctx.usec_sleep_before_new_stream = msec * 1000;
             break;
         case 'B':
             g_header_bypass = 1;
@@ -1694,8 +1861,8 @@ main (int argc, char **argv)
             TAILQ_INSERT_TAIL(&client_ctx.hcc_path_elems, pe, next_pe);
             break;
         case 'h':
-            usage(argv[0]);
-            prog_print_common_options(&prog, stdout);
+            usage(argv[0], &prog);
+            examples(argv[0]);
             exit(0);
         case 'q':
             client_ctx.qif_file = optarg;
